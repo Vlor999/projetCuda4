@@ -1,0 +1,75 @@
+stages:
+  - build
+  - test
+  - report
+
+build-assignment:
+  stage: build
+  script:
+    - cp /data/GPUProg/FULL/src/main.cpp src/main.cpp 
+    - cp /data/GPUProg/FULL/src/dataset.cpp src/dataset.cpp
+    - cp /data/GPUProg/FULL/src/renderer_reference.cu src/renderer_reference.cu
+    - cp /data/GPUProg/FULL/include/3dgs_common.h include/3dgs_common.h
+    - cp /data/GPUProg/FULL/include/dataset.h include/dataset.h
+    - cp /data/GPUProg/FULL/include/image_buffer.h include/image_buffer.h
+    - cp /data/GPUProg/FULL/include/renderer_base.h include/renderer_base.h
+    - cp /data/GPUProg/FULL/include/renderer_common.h include/renderer_common.h
+    - cp /data/GPUProg/FULL/include/renderer_reference.h include/renderer_reference.h
+    - cp /data/GPUProg/FULL/include/helper/CPUTimer.h include/helper/CPUTimer.h
+    - cp /data/GPUProg/FULL/include/helper/cuda_helper_host.h include/helper/cuda_helper_host.h
+    - cp /data/GPUProg/FULL/include/helper/GPUTimer.cuh include/helper/GPUTimer.cuh
+    - cp /data/GPUProg/FULL/include/helper/helper_math.h include/helper/helper_math.h
+    - cp /data/GPUProg/FULL/include/helper/Utility.cuh include/helper/Utility.cuh
+    - mkdir build
+    - cd build
+    - cmake .. -DCC=75
+    - make clean
+    - make
+  tags:
+    - GPUProg
+  only:
+    - submission
+  artifacts:
+    paths:
+      - build/3dgs-full
+    expire_in: 2 h
+
+test-assignment:
+  stage: test
+  script:
+    - cp /data/GPUProg/copyResults_3dgsfull.py copyResults.py
+    - cp /data/GPUProg/timedprocess.py timedprocess.py
+    - cp /data/GPUProg/execute_3dgsfull.py execute.py
+    - cp /data/GPUProg/aggregateResultsAndPlot_3dgsfull.py aggregateResultsAndPlot.py
+    - python execute.py
+    - python copyResults.py /data/GPUProg/results results.csv
+    - python aggregateResultsAndPlot.py -folder /data/GPUProg/results -plotname plot.pdf
+  tags:
+    - GPUProg
+  only:
+    - submission
+  artifacts:
+    paths:
+      - results.csv
+      - plot.pdf
+      - perf_table.csv
+      - summary_plot.pdf
+      - output
+    expire_in: 2 h
+
+collect-all:
+  stage: report
+  script:
+    - echo
+  tags:
+    - GPUProg
+  only:
+    - submission
+  artifacts:
+    paths:
+      - results.csv
+      - plot.pdf
+      - perf_table.csv
+      - summary_plot.pdf
+      - output
+    expire_in: 30 d
