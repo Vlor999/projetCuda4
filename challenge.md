@@ -8,6 +8,29 @@ To improve performance, I offloaded both tile counting and the prefix sum (exclu
 
 ### Performance Results
 
-- **Before optimization :** 752.37 ms/iteration (average)
-- **After optimization :** 695.28 ms/iteration (average)
+- **Before optimization** : 752.37 ms/iteration (average)
+- **After optimization** :  695.28 ms/iteration (average)
 - **Gain** : 7.5% per iterations 
+
+
+## Optimization 2: CUB Radix sort : `end_bit`
+
+### First version
+This does not really improove performance but reduce the number of computations by only looking at the 40 bits "in the middle". To found that i tried different `start_bit` and `end_bit` value to reduce the number of digits to look at.
+
+### Performance Results
+
+Same than before or really near form previous.
+- **Before optimization :** 695.28 ms/iteration (average)
+- **After optimization :** 689.29 ms/iteration (average)
+- **Gain** : ~1% per iterations
+
+### Second version
+Fir the second version I changed how keys were created and then using radix sort. 
+
+### Performance Results
+
+Same than before or really near form previous.
+- **Before optimization :** 695.28 ms/iteration (average)
+- **After optimization :** 672.91 ms/iteration (average)
+- **Gain** : ~3% per iterations

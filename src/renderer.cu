@@ -15,20 +15,19 @@ constexpr float EXTENT = 3.33f;
 
 __device__ inline uint64_t constructKey(uint32_t tile_idx, float depth)
 {
-    uint64_t key = tile_idx;
-    key <<= 32;
-    key |= *((uint32_t*)&depth);
-    return key;
+    uint32_t depth_bits = __float_as_uint(depth);
+    depth_bits ^= (depth_bits >> 31) | 0x80000000;
+    return (static_cast<uint64_t>(tile_idx) << 32) | depth_bits;
 }
 
 __device__ inline void deconstructKey(const uint64_t key, uint32_t& tile_idx, float& depth)
 {
     tile_idx = key >> 32;
-    uint32_t lower_key = key & 0xFFFFFFFF;
-    depth = *((float*) &lower_key);
+    uint32_t depth_bits = key & 0xFFFFFFFF;
+    depth_bits ^= ((depth_bits >> 31) - 1) | 0x80000000; 
+    depth = __uint_as_float(depth_bits);
 }
 
-// 1. Preprocess: Compute 2D means, covariances, colors, and tile bounds for each Gaussian
 __global__ void preprocess_gaussians(
     uint32_t n_gaussians,
     FrameInfo frame,
@@ -60,15 +59,16 @@ __global__ void preprocess_gaussians(
     const glm::mat3 cov3D = computeCov3D(scale[idx], rot[idx]);
     const glm::mat2 cov2D = computeCov2D(mean3D_vs, cov3D, frame.view_matrix, frame.focal, frame.resolution);
 
-    const glm::mat3x3 proj_matrix = buildProjMat(frame.focal, frame.resolution);
+    const glm::mat3 proj_matrix = buildProjMat(frame.focal, frame.resolution);
     const glm::vec2 mean2D = glm::vec2(proj_matrix * (mean3D_vs / mean3D_vs.z)) - 0.5f;
 
-    // Compute circular radius, dependent on the largest eigenvalue
-    const float min_lambda = 0.01f;
-    const float mid = 0.5f * (cov2D[0][0] + cov2D[1][1]);
-    const float lambda = mid + sqrtf(fmaxf(min_lambda, mid * mid - glm::determinant(cov2D)));
-    const float circle_extent_radius = EXTENT * sqrtf(lambda);
-    const float2 circle_extent_square_dims = make_float2(circle_extent_radius);
+    const float trace = cov2D[0][0] + cov2D[1][1];
+    const float det = glm::determinant(cov2D);
+    const float discriminant = fmaxf(0.01f, 0.25f * trace * trace - det);
+    const float lambda = 0.5f * trace + sqrtf(discriminant);
+
+    const float radius = EXTENT * sqrtf(lambda);
+    const float2 circle_extent_square_dims = make_float2(radius, radius);
 
     // Determine square dimensions in pixel-coordinates (left upper and right lower pixel), bounded by screen resolution
     uint2 rmin, rmax;
@@ -319,8 +319,11 @@ void Renderer::run(const DatasetGPU data, FrameInfo& frame, cudaSurfaceObject_t 
         CUDA_CHECK_THROW(cudaMalloc(&_d_tile_range_starts, sizeof(uint32_t) * n_tiles));
         CUDA_CHECK_THROW(cudaMalloc(&_d_tile_range_ends, sizeof(uint32_t) * n_tiles));
         _temp_storage_sort_size_bytes = 0;
-        cub::DeviceRadixSort::SortPairs(_d_temp_storage_sort, _temp_storage_sort_size_bytes,
-            _d_unsorted_keys, _d_sorted_keys, _d_unsorted_idcs, _d_sorted_idcs, _buffer_size);
+        cub::DeviceRadixSort::SortPairs(
+            _d_temp_storage_sort, _temp_storage_sort_size_bytes,
+            _d_unsorted_keys, _d_sorted_keys, _d_unsorted_idcs, _d_sorted_idcs, 
+            _buffer_size, 8, 48
+        );
         CUDA_CHECK_THROW(cudaMalloc(&_d_temp_storage_sort, _temp_storage_sort_size_bytes));
     }
 
@@ -332,7 +335,7 @@ void Renderer::run(const DatasetGPU data, FrameInfo& frame, cudaSurfaceObject_t 
 
     // --- 4. Global sort ---
     cub::DeviceRadixSort::SortPairs(_d_temp_storage_sort, _temp_storage_sort_size_bytes,
-        _d_unsorted_keys, _d_sorted_keys, _d_unsorted_idcs, _d_sorted_idcs, n_sort_entries);
+        _d_unsorted_keys, _d_sorted_keys, _d_unsorted_idcs, _d_sorted_idcs, n_sort_entries, 8, 48);
 
     // --- 5. Identify tile ranges ---
     cudaMemset(_d_tile_range_starts, 0xFF, sizeof(uint32_t) * n_tiles);
